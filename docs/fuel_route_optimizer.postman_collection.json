@@ -1,0 +1,183 @@
+{
+  "info": {
+    "_postman_id": "7f8b9a10-2c3d-4e5f-a6b7-c8d9e0f1a2b3",
+    "name": "Fuel Route Optimizer API",
+    "description": "Postman collection for testing the Fuel Route Planning & Optimization API (POST /api/v1/route/). Includes real production responses for success and error scenarios.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Successful Route (New York, NY to Chicago, IL)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Chicago, IL\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "route", ""]
+        },
+        "description": "Calculates optimal fuel stops between New York and Chicago (real production response)."
+      },
+      "response": [
+        {
+          "name": "200 OK Response (Real Production Data)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Chicago, IL\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/route/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "route", ""]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"route\": {\n    \"start\": \"New York, United States\",\n    \"finish\": \"Chicago, South Chicago Township, Cook County, Illinois, United States\",\n    \"distance_miles\": 790.57,\n    \"duration_seconds\": 53450.1,\n    \"duration_formatted\": \"14h 50m\",\n    \"geometry\": {\n      \"type\": \"LineString\",\n      \"coordinates\": [\n        [-74.005737, 40.712118],\n        [-74.005758, 40.712113],\n        [-74.006033, 40.712047],\n        \"... [25,230 intermediate coordinates omitted for Postman brevity; full 289 KB geometry available in docs/sample_response_ny_to_chicago.json] ...\",\n        [-87.624467, 41.875635],\n        [-87.624409, 41.875611],\n        [-87.624351, 41.875563]\n      ]\n    }\n  },\n  \"fuel_summary\": {\n    \"gallons_consumed\": 79.06,\n    \"gallons_purchased\": 29.06,\n    \"total_gallons\": 29.06,\n    \"total_fuel_cost\": 87.72,\n    \"stops_count\": 2,\n    \"starting_tank_note\": \"Vehicle departs origin with a full 50-gallon tank at no additional cost; gallons_purchased reflects fuel pumped along the route.\",\n    \"vehicle\": {\n      \"mpg\": 10.0,\n      \"max_range_miles\": 500.0,\n      \"tank_capacity_gallons\": 50.0\n    }\n  },\n  \"fuel_stops\": [\n    {\n      \"stop_number\": 1,\n      \"opis_id\": 72445,\n      \"name\": \"SHEETZ #639\",\n      \"address\": \"I-80 Exit 223\",\n      \"city\": \"Youngstown\",\n      \"state\": \"OH\",\n      \"latitude\": 41.099095,\n      \"longitude\": -80.645902,\n      \"precision\": \"approximate_city\",\n      \"geocode_source\": \"us_census_gazetteer\",\n      \"distance_from_start_miles\": 391.0,\n      \"gallons_pumped\": 5.67,\n      \"price_per_gallon\": 3.059,\n      \"cost\": 17.34\n    },\n    {\n      \"stop_number\": 2,\n      \"opis_id\": 72288,\n      \"name\": \"S&G #88\",\n      \"address\": \"I-475 Exit 13 & US-20\",\n      \"city\": \"Toledo\",\n      \"state\": \"OH\",\n      \"latitude\": 41.664071,\n      \"longitude\": -83.581861,\n      \"precision\": \"approximate_city\",\n      \"geocode_source\": \"us_census_gazetteer\",\n      \"distance_from_start_miles\": 556.7,\n      \"gallons_pumped\": 23.39,\n      \"price_per_gallon\": 3.009,\n      \"cost\": 70.38\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "2. Error - Empty Start Parameter (400)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"\",\n  \"finish\": \"Chicago, IL\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "route", ""]
+        },
+        "description": "Validation error when start parameter is empty string."
+      },
+      "response": [
+        {
+          "name": "400 Bad Request",
+          "status": "Bad Request",
+          "code": 400,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"error\": {\n    \"code\": \"MISSING_INPUT\",\n    \"message\": \"Parameter \\\"start\\\" cannot be empty.\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "3. Error - Unresolvable Nonsense Location (404)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"asdkjhqwe\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "route", ""]
+        },
+        "description": "404 response when geocoder cannot resolve the location query."
+      },
+      "response": [
+        {
+          "name": "404 Not Found",
+          "status": "Not Found",
+          "code": 404,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"error\": {\n    \"code\": \"LOCATION_NOT_FOUND\",\n    \"message\": \"Could not resolve location: 'asdkjhqwe'.\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "4. Error - Location Outside Contiguous US (422)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Anchorage, AK\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/route/",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "route", ""]
+        },
+        "description": "422 response when location is outside the contiguous US."
+      },
+      "response": [
+        {
+          "name": "422 Unprocessable Entity",
+          "status": "Unprocessable Entity",
+          "code": 422,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"error\": {\n    \"code\": \"LOCATION_NOT_US\",\n    \"message\": \"Location 'Anchorage, AK' coordinates (61.2163, -149.8949) fall outside the contiguous United States coverage area.\"\n  }\n}"
+        }
+      ]
+    }
+  ]
+}

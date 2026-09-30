@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Environment and secrets
+.env
+.env.local
+
+# Geolocation caches and raw external downloads
+data/cache/
+data/gazetteer/
+data/nominatim_cache.json
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.sqlite3
+db.sqlite3
+
+# IDE & Scratch
+.idea/
+.vscode/
+*.swp
+*.swo
+scratch/
+*.log
