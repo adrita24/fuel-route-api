@@ -6,7 +6,8 @@ from typing import Dict, Any
 
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
-from fuel_route.models import FuelStation
+from django.db import transaction
+from fuel_route.models import FuelStation, StationMatchCache
 
 CANADIAN_PROVINCES = {
     'AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT'
@@ -145,23 +146,29 @@ class Command(BaseCommand):
         imported_count = len(station_objects) - len(existing_ids)
         updated_count = len(existing_ids)
 
-        if station_objects:
-            FuelStation.objects.bulk_create(
-                station_objects,
-                update_conflicts=True,
-                unique_fields=['opis_id'],
-                update_fields=[
-                    'name', 'address', 'city', 'state', 'latitude', 'longitude',
-                    'retail_price', 'geocode_source', 'precision'
-                ],
-                batch_size=1000
-            )
+        # 5. Atomic transaction: upsert station objects and invalidate StationMatchCache
+        with transaction.atomic():
+            if station_objects:
+                FuelStation.objects.bulk_create(
+                    station_objects,
+                    update_conflicts=True,
+                    unique_fields=['opis_id'],
+                    update_fields=[
+                        'name', 'address', 'city', 'state', 'latitude', 'longitude',
+                        'retail_price', 'geocode_source', 'precision'
+                    ],
+                    batch_size=1000
+                )
 
-        # 6. Print structured summary
+            # 6. Invalidate StationMatchCache (station prices/locations may have updated)
+            cleared_count, _ = StationMatchCache.objects.all().delete()
+
+        # 7. Print structured summary
         self.stdout.write(self.style.SUCCESS("\nFuel data import complete."))
         self.stdout.write(f"  - Total stations imported (new): {imported_count}")
         self.stdout.write(f"  - Total stations updated (existing): {updated_count}")
         self.stdout.write(f"  - Total stations stored in DB: {len(station_objects)}")
         self.stdout.write(f"  - Skipped Canadian province records: {skipped_canadian}")
         self.stdout.write(f"  - Skipped exact duplicate CSV rows: {skipped_duplicate_rows}")
-        self.stdout.write(f"  - Skipped missing coordinates: {skipped_missing_coords}\n")
+        self.stdout.write(f"  - Skipped missing coordinates: {skipped_missing_coords}")
+        self.stdout.write(f"  - StationMatchCache rows cleared: {cleared_count}\n")

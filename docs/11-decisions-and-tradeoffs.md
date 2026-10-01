@@ -37,9 +37,9 @@ Every production system represents a series of conscious engineering tradeoffs b
 * **Tradeoff:** Django ORM handles the high-latitude expanded bounding box prefilter in 4.2 ms; Shapely executes segment-local metric projection in Python in 336 ms. Delivers identical sub-second speed with zero database extension overhead.
 
 ### 5. PostgreSQL DB-Table Caches Instead of Redis
-* **Decision:** Use persistent database tables (`GeocodingCache` and `RouteCache`) for caching rather than Redis or Memcached.
-* **Why:** Operational simplicity. Adding Redis introduces an extra stateful infrastructure daemon, connection pool management, and memory limits. PostgreSQL provides permanent, ACID-compliant persistence for cached geocodes and routes across restarts.
-* **Tradeoff:** Redis delivers sub-millisecond lookups (< 1 ms); PostgreSQL b-tree lookups take 2.7 ms. The 2 ms difference is negligible compared to outbound network requests (1,000+ ms).
+* **Decision:** Use persistent database tables (`GeocodingCache`, `RouteCache`, and `StationMatchCache`) for caching rather than Redis or Memcached.
+* **Why:** Operational simplicity. Adding Redis introduces an extra stateful infrastructure daemon, connection pool management, and memory limits. PostgreSQL provides permanent, ACID-compliant persistence for cached geocodes, routes, and corridor-matched stations across restarts.
+* **Tradeoff:** Redis delivers sub-millisecond lookups (< 1 ms); PostgreSQL b-tree lookups take 2.7–4.5 ms. The small difference is negligible compared to outbound network requests (1,000+ ms) while saving architectural complexity.
 
 ### 6. Stop Count Not Penalized
 * **Decision:** The algorithm minimizes total fuel cost ($) without adding an artificial time penalty per stop or a minimum-savings threshold per refueling event.
@@ -59,3 +59,10 @@ Every production system represents a series of conscious engineering tradeoffs b
 ### 9. Geographic Boundary Error Taxonomy (404 vs 422)
 * **Decision:** Handle overseas queries (e.g. `"Paris, France"`) as `LOCATION_NOT_FOUND` (HTTP 404) and non-contiguous US queries (e.g. `"Anchorage, AK"`, `"Honolulu, HI"`) as `LOCATION_NOT_US` (HTTP 422).
 * **Why:** Forward geocoding to OpenStreetMap Nominatim strictly enforces `countrycodes=us`. For overseas queries, Nominatim finds zero matching entities within the US, naturally resulting in a 404 Not Found. For US destinations in Alaska or Hawaii, Nominatim successfully resolves the US place, but the coordinates fall outside the contiguous US (CONUS) bounding box (`[24.0, 50.0]` lat, `[-125.0, -66.5]` lon), resulting in an unprocessable 422.
+
+### 10. Station Match Caching Strategy & Invalidation
+* **Decision:** Cache the candidate corridor stations in `StationMatchCache` using key `f"{route_key}|{corridor_miles}"`, while running the optimizer dynamically on every request.
+* **Why Not Cache the Full API Response?** Caching the full API response would cement the vehicle assumptions (`MPG`, `MAX_RANGE_MILES`, `TANK_CAPACITY_GALLONS`). If a dispatcher adjusts vehicle MPG from 10 to 8 or changes the truck's tank range, a cached full response would return invalid fuel stops. Because the optimizer runs in just **~1.2 ms**, caching only the spatial matching stage achieves a **20x server speedup** while allowing real-time parameter tuning.
+* **Cache Key Choice:** Combining `route_key` (rounded coordinates) with `ROUTE_CORRIDOR_MILES` guarantees that changing the corridor width immediately evaluates the wider or narrower corridor without cross-contamination.
+* **Invalidation on Data Import:** When `python manage.py import_fuel_data` imports updated fuel prices or new stations, it automatically clears `StationMatchCache` (`StationMatchCache.objects.all().delete()`), ensuring stale station prices are never served along cached routes.
+

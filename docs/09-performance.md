@@ -45,14 +45,32 @@ Shapely `STRtree` spatial indexing and corridor projection dominates the cached 
 
 ---
 
-## 3. Possible Latency Improvements (Documented, Not Implemented)
+## 3. Station Match Cache: Before vs. After Benchmarks
 
-If sub-100ms response times are required for cached routes in high-throughput enterprise environments, the following architectural optimizations can be introduced without altering optimization math:
+To eliminate the 300–400 ms spatial bottleneck caused by building Shapely STRtrees on repeated identical routes, `StationMatchCache` caches the pre-projected candidate stations along a route corridor keyed by `route_key|corridor_miles`.
 
-1. **Geometry Simplification (Ramer-Douglas-Peucker):**
-   * Simplify the high-resolution 25,000-point highway line string using Shapely's `simplify(tolerance=0.0005)` (~50 meters) specifically for station matching.
-   * This reduces the vertex count from 25,000 to ~2,000 segments (a 12x reduction), dropping STRtree construction and query time from **336 ms down to < 25 ms**, while keeping the full 25,000-point line string intact for the final JSON response.
-2. **Cache Matched Stations Per Route:**
-   * Because highway fuel station candidate lists along a fixed route key are static, the matched stations list (with projected distances from start) can be stored alongside the route in `RouteCache` or an associated table. Subsequent requests would completely bypass STRtree construction, dropping server processing to under 25 ms.
-3. **Dedicated In-Memory Cache (Redis):**
-   * Storing hot route keys and pre-projected candidate stations in Redis rather than PostgreSQL reduces cache query overhead from 12 ms to < 1 ms.
+Empirical measurements across 5 warm runs each against PostgreSQL:
+
+| Metric | New York, NY $\to$ Chicago, IL | College Station, TX $\to$ Atlanta, GA |
+|---|---|---|
+| **Matching Alone (Before, STRtree)** | `392.14 ms` | `242.91 ms` |
+| **Matching Alone (After, StationMatchCache)** | **`4.47 ms`** (**87.8x speedup**) | **`3.68 ms`** (**66.0x speedup**) |
+| **Server E2E Time (Before)** | `473.69 ms` | `296.55 ms` |
+| **Server E2E Time (After)** | **`23.59 ms`** (**20.1x speedup**) | **`23.00 ms`** (**12.9x speedup**) |
+| **Postman-Style HTTP Time (2nd Call)** | **`61.38 ms`** | **`40.54 ms`** |
+
+### What is Cached vs. What is Evaluated Dynamically
+* **Cached (`StationMatchCache`):** The list of candidate fuel stations within the corridor and their along-route mile markers (`distance_from_start_miles`). Prices are stored as strings to prevent floating-point drift and converted back to `Decimal` upon read.
+* **Why the Optimizer is NOT Cached:** The optimizer takes only **~1.2 ms**. Keeping the optimizer dynamic allows clients to change vehicle settings (`MPG`, `MAX_RANGE_MILES`, `TANK_CAPACITY_GALLONS`) on the fly and immediately receive the newly tailored fuel stops without requiring cache invalidation.
+
+### Where Does the Remaining Time Go on Repeat Requests?
+On repeat requests (e.g. New York to Chicago in ~61 ms HTTP turnaround):
+1. **Server-Side Execution (~23.6 ms):**
+   * `RouteCache` geometry lookup (fetching 289 KB JSON from PostgreSQL): **12.2 ms**
+   * `StationMatchCache` lookup & Decimal deserialization: **4.5 ms**
+   * `GeocodingCache` lookups (start + finish): **2.5 ms**
+   * Pure Python Greedy Optimizer: **1.2 ms**
+   * Route duration formatting & response dict assembly: **0.5 ms**
+2. **HTTP Layer & Transport (~37.8 ms):**
+   * DRF JSON serialization & rendering of the 25,236-vertex LineString: **16.6 ms**
+   * Localhost TCP socket connection, HTTP headers parsing, and payload transfer: **21.2 ms**

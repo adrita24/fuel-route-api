@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import FuelStation, GeocodingCache, RouteCache
+from .models import FuelStation, GeocodingCache, RouteCache, StationMatchCache
 
 @admin.register(FuelStation)
 class FuelStationAdmin(admin.ModelAdmin):
@@ -16,4 +16,9 @@ class GeocodingCacheAdmin(admin.ModelAdmin):
 class RouteCacheAdmin(admin.ModelAdmin):
     list_display = ('route_key', 'distance_miles', 'duration_seconds', 'created_at')
     search_fields = ('route_key',)
+
+@admin.register(StationMatchCache)
+class StationMatchCacheAdmin(admin.ModelAdmin):
+    list_display = ('key', 'created_at')
+    search_fields = ('key',)
 

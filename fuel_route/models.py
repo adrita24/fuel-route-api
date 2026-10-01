@@ -78,3 +78,24 @@ class RouteCache(models.Model):
     def __str__(self):
         return f"{self.route_key}: {self.distance_miles:.1f} mi ({self.duration_seconds/3600:.1f} hrs)"
 
+
+class StationMatchCache(models.Model):
+    """
+    Persistent on-disk cache for candidate stations matched and projected
+    along a driving route corridor.
+    Key format: '{route_key}|{corridor_miles}'
+    Matches: JSON list of matched station dictionaries with price stored as string.
+    """
+    key = models.CharField(max_length=255, unique=True, db_index=True, help_text="Cache key: route_key|corridor_miles")
+    matches = models.JSONField(help_text="List of candidate stations along route corridor")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'station_match_cache'
+        verbose_name = 'Station Match Cache Entry'
+        verbose_name_plural = 'Station Match Cache Entries'
+
+    def __str__(self):
+        match_count = len(self.matches) if isinstance(self.matches, list) else 0
+        return f"{self.key}: {match_count} candidate stations"
+

@@ -30,10 +30,11 @@ The service is organized into a clean, layered architecture separating HTTP seri
 ┌─────────────────┐ ┌─────────────┐ ┌─────────────────────┐
 │ Geocoding       │ │ Routing     │ │ Spatial Matching    │
 │ (geocoding.py)  │ │ (routing.py)│ │ (stations.py)       │
-│ - OSM Nominatim │ │ - OSRM API  │ │ - SQL Bbox Prefilter│
-│ - Rate Limiter  │ │ - GeoJSON   │ │ - Shapely STRtree   │
-│ - CONUS Filter  │ │ - RouteCache│ │ - Segment-Local     │
-│ - GeocodingCache│ │             │ │   Metric Projection │
+│ - OSM Nominatim │ │ - OSRM API  │ │ - StationMatchCache │
+│ - Rate Limiter  │ │ - GeoJSON   │ │ - SQL Bbox Prefilter│
+│ - CONUS Filter  │ │ - RouteCache│ │ - Shapely STRtree   │
+│ - GeocodingCache│ │             │ │ - Segment-Local     │
+│                 │ │             │ │   Metric Projection │
 └─────────────────┘ └─────────────┘ └──────────┬──────────┘
                                                │
                                                ▼
@@ -72,11 +73,14 @@ When a client sends a `POST /api/v1/route/` request (e.g. `{"start": "Austin, TX
 * Permanently stores the route geometry, odometer miles, and duration in `RouteCache`.
 
 ### Step 4: Spatial Corridor Detour Filtering & Projection
-* Handled by `get_candidate_stations_along_route()` in [`fuel_route/services/stations.py`](file:///d:/code/assignment/fuel_route/services/stations.py).
-* **Stage 1 (SQL Bounding Box):** Calculates the route bounding box with high-latitude longitude expansion ($\Delta \text{lon} \propto \frac{1}{\cos(\text{lat})}$). Executes a single indexed SQL query against `fuel_stations` (0 N+1 queries), pruning 6,626 stations down to ~50–300 candidates in `< 5 ms`.
-* **Stage 2 (Shapely STRtree Projection):** Indexes route segments in an $O(M \log N)$ spatial R-tree. Projects candidate stations onto nearby highway segments using segment-local metric Cartesian projection, bounding local curvature distortion to $< 0.001\%$.
-* Retains stations with perpendicular cross-track distance $\le 10.0\text{ miles}$.
-* Scales cumulative segment distance to match OSRM's authoritative odometer mileage.
+* Handled by `get_candidate_stations_with_cache()` in [`fuel_route/services/planner.py`](file:///d:/code/assignment/fuel_route/services/planner.py) and [`fuel_route/services/stations.py`](file:///d:/code/assignment/fuel_route/services/stations.py).
+* **Cache Check (`StationMatchCache`):** Checks `station_match_cache` using key `f"{route_key}|{corridor_miles}"`. If warm, candidate stations and their precomputed distance markers are returned in **< 4.5 ms**, completely bypassing spatial R-tree calculations.
+* **Cold Computation (on Cache Miss):**
+  * **Stage 1 (SQL Bounding Box):** Calculates the route bounding box with high-latitude longitude expansion ($\Delta \text{lon} \propto \frac{1}{\cos(\text{lat})}$). Executes a single indexed SQL query against `fuel_stations` (0 N+1 queries), pruning 6,626 stations down to ~50–300 candidates in `< 5 ms`.
+  * **Stage 2 (Shapely STRtree Projection):** Indexes route segments in an $O(M \log N)$ spatial R-tree. Projects candidate stations onto nearby highway segments using segment-local metric Cartesian projection, bounding local curvature distortion to $< 0.001\%$.
+  * Retains stations with perpendicular cross-track distance $\le 10.0\text{ miles}$.
+  * Scales cumulative segment distance to match OSRM's authoritative odometer mileage.
+* **Cache Write:** On successful matching, stores the candidate list in `StationMatchCache` (prices stored as strings for precision preservation).
 
 ### Step 5: Fuel Stop Optimization
 * Handled by `optimize_fuel_stops()` in [`fuel_route/services/optimizer.py`](file:///d:/code/assignment/fuel_route/services/optimizer.py).

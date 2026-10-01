@@ -3,12 +3,70 @@ Route Planning & Fuel Optimization Orchestrator Service.
 Coordinates geocoding, OSRM routing, corridor station matching, and fuel stop optimization.
 """
 
-from typing import Dict, Any
+import logging
+from decimal import Decimal
+from typing import Dict, Any, List
 
+from django.conf import settings
+from django.db import IntegrityError
+
+from fuel_route.models import StationMatchCache
 from fuel_route.services.geocoding import geocode
-from fuel_route.services.routing import get_route
+from fuel_route.services.routing import get_route, make_route_key
 from fuel_route.services.stations import get_candidate_stations_along_route
 from fuel_route.services.optimizer import optimize_fuel_stops
+
+logger = logging.getLogger(__name__)
+
+
+def get_candidate_stations_with_cache(
+    route_key: str,
+    route_geometry: Dict[str, Any],
+    osrm_distance_miles: float,
+    corridor_miles: float = 10.0
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve candidate stations along a route corridor, using StationMatchCache to
+    avoid expensive Shapely STRtree spatial projection on repeated identical routes.
+    """
+    cache_key = f"{route_key}|{corridor_miles}"
+
+    # 1. Cache-first lookup
+    cached_entry = StationMatchCache.objects.filter(key=cache_key).first()
+    if cached_entry:
+        logger.info(f"[STATION MATCH CACHE HIT] Candidate stations for '{cache_key}' retrieved from StationMatchCache (0 spatial queries)")
+        stations = []
+        for s in cached_entry.matches:
+            st = dict(s)
+            st['retail_price'] = Decimal(str(st['retail_price']))
+            stations.append(st)
+        return stations
+
+    logger.info(f"[STATION MATCH CACHE MISS] Computing spatial corridor matching for '{cache_key}'...")
+    # 2. Run spatial matching
+    matched = get_candidate_stations_along_route(
+        route_geometry=route_geometry,
+        osrm_distance_miles=osrm_distance_miles,
+        corridor_miles=corridor_miles
+    )
+
+    # 3. Store in cache (only if valid stations found; do not cache failures or errors)
+    if matched:
+        serializable_matches = []
+        for s in matched:
+            st = dict(s)
+            st['retail_price'] = str(st['retail_price'])
+            serializable_matches.append(st)
+
+        try:
+            StationMatchCache.objects.get_or_create(
+                key=cache_key,
+                defaults={'matches': serializable_matches}
+            )
+        except IntegrityError:
+            pass  # Concurrency-safe: another worker inserted simultaneously
+
+    return matched
 
 
 def plan_fuel_route(start_query: str, finish_query: str) -> Dict[str, Any]:
@@ -69,9 +127,16 @@ def plan_fuel_route(start_query: str, finish_query: str) -> Dict[str, Any]:
     )
 
     # 3. Corridor Station Matching
-    candidate_stations = get_candidate_stations_along_route(
+    route_key = make_route_key(
+        start_geo['latitude'], start_geo['longitude'],
+        finish_geo['latitude'], finish_geo['longitude']
+    )
+    corridor_miles = getattr(settings, 'ROUTE_CORRIDOR_MILES', 10.0)
+    candidate_stations = get_candidate_stations_with_cache(
+        route_key=route_key,
         route_geometry=route_data['geometry'],
-        osrm_distance_miles=route_data['distance_miles']
+        osrm_distance_miles=route_data['distance_miles'],
+        corridor_miles=corridor_miles
     )
 
     # 4. Fuel Stop Optimization

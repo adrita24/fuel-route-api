@@ -74,7 +74,11 @@ Phase 2 introduces dedicated external service modules (`fuel_route/services/`) f
    - **Single Query:** Requests full route geometry (`overview=full`, `geometries=geojson`, `steps=false`) and extracts total distance in miles (`meters * 0.000621371`), duration in seconds, and GeoJSON LineString coordinates.
    - **Persistent Caching (`route_cache`):** Caches routes permanently in PostgreSQL using canonical keys rounded to 4 decimal places (~11 meters).
    - **Swappable Endpoint (`OSRM_BASE_URL`):** Defaults to public demo server (`https://router.project-osrm.org`), fully swappable for dedicated or self-hosted OSRM instances.
-3. **Structured Error Taxonomy (`fuel_route/services/exceptions.py`):**
+3. **Three-Tier Persistent Caching Architecture:**
+   - **`GeocodingCache` (`geocoding_cache`):** Permanent cache for forward geocoding results, keyed by normalized lowercase query strings.
+   - **`RouteCache` (`route_cache`):** Permanent cache for OSRM driving routes and GeoJSON geometries, keyed by start/finish coordinates rounded to 4 decimals (~11m).
+   - **`StationMatchCache` (`station_match_cache`):** Persistent cache for candidate fuel stations along a route corridor, keyed by `route_key|corridor_miles`. Reduces station-matching time on repeat routes from ~390 ms down to ~4.5 ms (88x speedup). Automatically invalidated during `import_fuel_data` runs.
+4. **Structured Error Taxonomy (`fuel_route/services/exceptions.py`):**
    - Maps domain exceptions to specific error codes and HTTP statuses (`MISSING_INPUT` [400], `LOCATION_NOT_FOUND` [404], `LOCATION_NOT_US` [422], `NO_ROUTE_FOUND` [422], `GEOCODER_RATE_LIMITED` [429], `GEOCODER_ERROR` [502], `ROUTING_ERROR` [502], `GEOCODER_TIMEOUT` [504], `ROUTING_TIMEOUT` [504]).
 4. **Service Tradeoffs & Operational Notes:**
    - *In-Process Rate Limiter Limitation:* The 1.05s Nominatim rate limiter operates within a single Python process. Multi-process production deployments (e.g. Gunicorn/uWSGI workers) should synchronize requests via Redis or an outbound proxy.
